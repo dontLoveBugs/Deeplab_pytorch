@@ -40,7 +40,7 @@ def parse_command():
     parser.add_argument('-b', '--batch-size', default=8, type=int, help='mini-batch size (default: 4)')
     parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
-    parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.0001)')
     parser.add_argument('--lr_patience', default=2, type=int,
                         help='Patience of LR scheduler. See documentation of ReduceLROnPlateau.')
@@ -205,7 +205,7 @@ def main():
         }, is_best, epoch, output_directory)
 
         # when rml doesn't fall, reduce learning rate
-        scheduler.step(result.absrel)
+        scheduler.step(result.iou)
 
     logger.close()
 
