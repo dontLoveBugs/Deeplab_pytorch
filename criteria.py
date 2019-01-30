@@ -5,8 +5,9 @@
  @Email   : wangxin_buaa@163.com
 """
 
-import np
+import numpy as np
 import torch
+import torch.nn as nn
 
 
 def cross_entropy2d(logit, target, ignore_index=255, weight=None, size_average=True, batch_average=True):

@@ -4,16 +4,41 @@
  @Author  : Wang Xin
  @Email   : wangxin_buaa@163.com
 """
-
-
+import glob
 import os
+import shutil
 
 import torch
-import random
 import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
+from PIL import Image
+
+cmap = plt.cm.jet
+
+
+def get_output_directory(args, check=False):
+    save_dir_root = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+    save_dir_root = os.path.join(save_dir_root, 'result', args.model, args.dataset)
+    if args.resume:
+        runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
+        run_id = int(runs[-1].split('_')[-1]) if runs else 0
+    else:
+        runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
+        if check:
+            run_id = int(runs[-1].split('_')[-1]) if runs else 0
+        else:
+            run_id = int(runs[-1].split('_')[-1]) + 1 if runs else 0
+    save_dir = os.path.join(save_dir_root, 'run_' + str(run_id))
+    return save_dir
+
+
+# save checkpoint
+def save_checkpoint(state, is_best, epoch, output_directory):
+    checkpoint_filename = os.path.join(output_directory, 'checkpoint-' + str(epoch) + '.pth.tar')
+    torch.save(state, checkpoint_filename)
+    if is_best:
+        best_filename = os.path.join(output_directory, 'model_best.pth.tar')
+        shutil.copyfile(checkpoint_filename, best_filename)
 
 
 def recursive_glob(rootdir='.', suffix=''):
@@ -129,23 +154,33 @@ def decode_segmap(label_mask, dataset, plot=False):
         return rgb
 
 
+def merge_into_row(input, target, pred):
+    rgb = 255 * np.transpose(np.squeeze(input.cpu().numpy()), (1, 2, 0))  # H, W, C
+
+    target = np.squeeze(torch.argmax(target, 1).cpu().numpy())
+    pred = np.squeeze(torch.argmax(pred, 1).cpu().numpy())
+
+    target = decode_seg_map_sequence(target)
+    pred = decode_seg_map_sequence(pred)
+    img_merge = np.hstack([rgb, target, pred])
+
+    return img_merge
+
+
+def add_row(img_merge, row):
+    return np.vstack([img_merge, row])
+
+
+def save_image(img_merge, filename):
+    img_merge = Image.fromarray(img_merge.astype('uint8'))
+    img_merge.save(filename)
+
+
 def generate_param_report(logfile, param):
     log_file = open(logfile, 'w')
     for key, val in param.items():
         log_file.write(key + ':' + str(val) + '\n')
     log_file.close()
-
-
-def lr_poly(base_lr, iter_, max_iter=100, power=0.9):
-    return base_lr * ((1 - float(iter_) / max_iter) ** power)
-
-
-# ploy策略的学习率更新
-def update_ploy_lr(optimizer, initialized_lr, current_step, max_step, power=0.9):
-    lr = initialized_lr * ((1 - float(current_step) / max_step) ** (power))
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-    return lr
 
 
 def get_iou(pred, gt, n_classes=21):

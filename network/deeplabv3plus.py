@@ -104,3 +104,27 @@ class DeepLabv3_plus(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
+    def get_1x_lr_params(self):
+        b = [self.resnet_features]
+        for i in range(len(b)):
+            for k in b[i].parameters():
+                if k.requires_grad:
+                    yield k
+
+    def get_10x_lr_params(self):
+        b = [self.aspp1, self.aspp2, self.aspp3, self.aspp4, self.conv1, self.conv2, self.last_conv]
+        for j in range(len(b)):
+            for k in b[j].parameters():
+                if k.requires_grad:
+                    yield k
+
+
+if __name__ == '__main__':
+    img = torch.randn(3, 3, 513, 513).cuda()
+    model = DeepLabv3_plus(nInputChannels=3, n_classes=21, os=16, pretrained=True).cuda()
+
+    with torch.no_grad():
+        pred = model.forward(img)
+
+    print(pred.size())

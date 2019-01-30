@@ -6,18 +6,29 @@
 """
 import glob
 import os
+import shutil
+import socket
+from datetime import datetime
+
 import numpy as np
 
-import torch.data.Dataloader
+from tensorboardX import SummaryWriter
+
+import torch
 from torch import nn
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 from torchvision.transforms import transforms
 import dataloaders.transforms as tr
+import utils
 from dataloaders.voc_aug import VOCAug
 
 import criteria
+from network.get_models import get_models
+
+from train import train
+from validation import validate
 
 
 def parse_command():
@@ -26,7 +37,7 @@ def parse_command():
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
     parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
-    parser.add_argument('-b', '--batch-size', default=6, type=int, help='mini-batch size (default: 4)')
+    parser.add_argument('-b', '--batch-size', default=8, type=int, help='mini-batch size (default: 4)')
     parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
@@ -67,8 +78,8 @@ def create_loader(args):
             tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             tr.ToTensor()])
 
-        train_set = VOCAug.VOCAug(split='train', transform=composed_transforms_tr)
-        val_set = VOCAug.VOCAug(split='val', transform=composed_transforms_ts)
+        train_set = VOCAug(split='train', transform=composed_transforms_tr)
+        val_set = VOCAug(split='val', transform=composed_transforms_ts)
     else:
         print('Database {} not available.'.format(args.dataset))
         raise NotImplementedError
@@ -80,20 +91,9 @@ def create_loader(args):
     return train_loader, val_loader
 
 
-def get_output_directory(args):
-    save_dir_root = os.path.join(os.path.dirname(os.path.abspath(__file__)))
-    save_dir_root = os.path.join(save_dir_root, 'result', args.model, args.dataset)
-    if args.resume:
-        runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
-        run_id = int(runs[-1].split('_')[-1]) if runs else 0
-    else:
-        runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
-        run_id = int(runs[-1].split('_')[-1]) + 1 if runs else 0
-    save_dir = os.path.join(save_dir_root, 'run_' + str(run_id))
-    return save_dir
+def main():
+    global args, best_result, output_directory
 
-
-def main(args):
     # set random seed
     torch.manual_seed(args.manual_seed)
     torch.cuda.manual_seed(args.manual_seed)
@@ -128,7 +128,7 @@ def main(args):
         torch.cuda.empty_cache()
     else:
         print("=> creating Model")
-        model = get_models(args.dataset)
+        model = get_models(args)
         print("=> model created.")
         start_epoch = 0
 
@@ -172,6 +172,43 @@ def main(args):
     os.makedirs(log_path)
     logger = SummaryWriter(log_path)
 
+    for epoch in range(start_epoch, args.epochs):
+
+        # remember change of the learning rate
+        for i, param_group in enumerate(optimizer.param_groups):
+            old_lr = float(param_group['lr'])
+            logger.add_scalar('Lr/lr_' + str(i), old_lr, epoch)
+
+        train(args, train_loader, model, optimizer, epoch, logger)  # train for one epoch
+        result, img_merge = validate(args, val_loader, model, epoch, logger)  # evaluate on validation set
+
+        # remember best rmse and save checkpoint
+        is_best = result.iou < best_result.iou
+        if is_best:
+            best_result = result
+            with open(best_txt, 'w') as txtfile:
+                txtfile.write(
+                    "epoch={}, iou={:.3f}"
+                    "t_gpu={:.4f}".
+                        format(epoch, result.iou, result.gpu_time))
+            if img_merge is not None:
+                img_filename = output_directory + '/comparison_best.png'
+                utils.save_image(img_merge, img_filename)
+
+        # save checkpoint for each epoch
+        utils.save_checkpoint({
+            'args': args,
+            'epoch': epoch,
+            'model': model,
+            'best_result': best_result,
+            'optimizer': optimizer,
+        }, is_best, epoch, output_directory)
+
+        # when rml doesn't fall, reduce learning rate
+        scheduler.step(result.absrel)
+
+    logger.close()
+
 
 if __name__ == '__main__':
-    main(args)
+    main()
