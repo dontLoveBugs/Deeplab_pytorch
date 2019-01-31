@@ -44,10 +44,10 @@ class DeeplabV3(ResNet):
         self.layer4 = self._make_MG_unit(block, 512, blocks=grids, stride=strides[3], rate=rates[3])
 
         # Deeplab Modules
-        self.aspp1 = ASPP_module(2048, 256, rate=rates[0])
-        self.aspp2 = ASPP_module(2048, 256, rate=rates[1])
-        self.aspp3 = ASPP_module(2048, 256, rate=rates[2])
-        self.aspp4 = ASPP_module(2048, 256, rate=rates[3])
+        self.aspp1 = ASPP_module(2048, 256, rate=pyramids[0])
+        self.aspp2 = ASPP_module(2048, 256, rate=pyramids[1])
+        self.aspp3 = ASPP_module(2048, 256, rate=pyramids[2])
+        self.aspp4 = ASPP_module(2048, 256, rate=pyramids[3])
 
         self.global_avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)),
                                              nn.Conv2d(2048, 256, kernel_size=1, stride=1, bias=False),
