@@ -67,9 +67,15 @@ def validate(args, val_loader, model, epoch, logger):
         if (i + 1) % args.print_freq == 0:
             print('Test: [{0}/{1}]\t'
                   't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
-                  'RMSE={result.iou:.2f}({average.iou:.2f})'.format(
+                  'IOU={result.iou:.2f}({average.iou:.2f})'.format(
                 i + 1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
 
     avg = average_meter.average()
     logger.add_scalar('Test/iou', avg.iou, epoch)
+
+    print('\n*\n'
+          'IOU={average.iou:.3f}\n'
+          't_GPU={time:.3f}\n'.format(
+        average=avg, time=avg.gpu_time))
+
     return avg, img_merge

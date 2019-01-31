@@ -31,7 +31,7 @@ class Result(object):
         self.data_time, self.gpu_time = data_time, gpu_time
 
     def evaluate(self, output, target):
-        self.iou = utils.get_iou(output, target, n_classes=21)
+        self.iou = utils.get_miou(output, target, n_classes=21)
 
 
 class AverageMeter(object):

@@ -158,7 +158,7 @@ def decode_segmap(label_mask, dataset, plot=False):
         return rgb
 
 
-def de_normalize(rgb, mean = (0.485, 0.456, 0.406), std = (0.229, 0.224, 0.225)):
+def de_normalize(rgb, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
     rgb = rgb * std + mean
     return 255 * rgb
 
@@ -221,3 +221,32 @@ def get_iou(pred, gt, n_classes=21):
         total_iou += img_iou
 
     return total_iou
+
+
+def get_miou(pred, gt, n_classes=21):
+    m_iou = 0.0
+    for i in range(len(pred)):
+        pred_tmp = pred[i]
+        gt_tmp = gt[i]
+
+        intersect = [0] * n_classes
+        union = [0] * n_classes
+        for j in range(n_classes):
+            match = (pred_tmp == j) + (gt_tmp == j)
+
+            it = torch.sum(match == 2).item()
+            un = torch.sum(match > 0).item()
+
+            intersect[j] += it
+            union[j] += un
+
+        iou = []
+        for k in range(n_classes):
+            if union[k] == 0:
+                continue
+            iou.append(intersect[k] / union[k])
+
+        img_iou = (sum(iou) / len(iou))
+        m_iou += img_iou
+
+    return m_iou / len(pred)
