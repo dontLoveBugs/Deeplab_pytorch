@@ -9,6 +9,7 @@ import os
 import shutil
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -43,14 +44,15 @@ def save_checkpoint(state, is_best, epoch, output_directory):
         shutil.copyfile(checkpoint_filename, best_filename)
 
 
-def recursive_glob(rootdir='.', suffix=''):
-    """Performs recursive glob with given suffix and rootdir
-        :param rootdir is the root directory
-        :param suffix is the suffix to be searched
-    """
-    return [os.path.join(looproot, filename)
-            for looproot, _, filenames in os.walk(rootdir)
-            for filename in filenames if filename.endswith(suffix)]
+def resize_labels(labels, shape):
+    # labels = labels.unsqueeze(1).float()  # Add channel axis
+    print('#1 labels size:', labels.size())
+
+    labels = F.interpolate(labels, size=shape, mode="nearest")
+    # labels = labels.squeeze(1).long()
+
+    print('#2 labels size:', labels.size())
+    return labels
 
 
 def get_cityscapes_labels():
@@ -164,11 +166,12 @@ def de_normalize(rgb, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
 
 
 def merge_into_row(input, target, pred):
-    rgb = np.transpose(np.squeeze(input.cpu().numpy()), (1, 2, 0))  # H, W, C
+    rgb = np.transpose(np.squeeze(input), (1, 2, 0))  # H, W, C
     rgb = de_normalize(rgb)
 
-    target = np.squeeze(target.cpu().numpy())
-    pred = np.squeeze(pred.cpu().numpy())
+    target = np.squeeze(target)
+
+    pred = np.squeeze(np.argmax(pred, axis=1))
 
     target = 255 * decode_segmap(target, dataset='vocaug')
     pred = 255 * decode_segmap(pred, dataset='vocaug')

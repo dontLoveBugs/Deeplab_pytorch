@@ -5,15 +5,17 @@
  @Email   : wangxin_buaa@163.com
 """
 
+import numpy as np
+
 import torch
+import torch.nn.functional as F
 import time
 
-from metrics import AverageMeter, Result
-import utils
-from criteria import cross_entropy2d as criterion
+from libs.metrics import AverageMeter, Result
+from libs import utils
 
 
-def train(args, train_loader, model, optimizer, epoch, logger):
+def train(args, train_loader, model, criterion, optimizer, epoch, logger):
     average_meter = AverageMeter()
     model.train()  # switch to train mode
     batch_num = len(train_loader)
@@ -21,6 +23,8 @@ def train(args, train_loader, model, optimizer, epoch, logger):
     output_directory = utils.get_output_directory(args, check=True)
 
     end = time.time()
+
+    iter_count = 0
 
     for i, samples in enumerate(train_loader):
 
@@ -40,25 +44,40 @@ def train(args, train_loader, model, optimizer, epoch, logger):
         end = time.time()
 
         with torch.autograd.detect_anomaly():
-            pred = model(input)  # @wx 注意输出
-            loss = criterion(pred, target, size_average=True, batch_average=True)
-            optimizer.zero_grad()
-            loss.backward()  # compute gradient and do SGD step
-            optimizer.step()
+            preds = model(input)  # @wx 注意输出
 
-        # pred = model(input)  # @wx 注意输出
-        # loss = criterion(pred, target, size_average=False, batch_average=True)
-        # optimizer.zero_grad()
-        # loss.backward()  # compute gradient and do SGD step
-        # optimizer.step()
+            loss = 0
+            if args.multi_scale:
+                for pred in preds:
+                    # Resize labels for {100%, 75%, 50%, Max} logits
+                    target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
+                    print('#train pred size:', pred.size())
+                    loss += criterion(pred, target_)
+            else:
+                pred = preds
+                target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
+                print('#train pred size:', pred.size())
+                print('#train target size:', target.size())
+                loss += criterion(pred, target_)
+
+            # Backpropagate (just compute gradients wrt the loss)
+            loss /= args.iter_size
+            loss.backward()
+            iter_count += 1
+
+            if iter_count % args.iter_size:
+                optimizer.step()
+                optimizer.zero_grad()
+                iter_count = 0
 
         torch.cuda.synchronize()
         gpu_time = time.time() - end
 
         # measure accuracy and record loss
         result = Result()
-        pred = torch.argmax(pred, 1)
-        result.evaluate(pred.data, target.data)
+        pred = F.softmax(pred, dim=1)
+
+        result.evaluate(pred.data.cpu().numpy(), target.data.cpu().numpy(), n_class=21)
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
 
@@ -68,14 +87,16 @@ def train(args, train_loader, model, optimizer, epoch, logger):
                   't_Data={data_time:.3f}({average.data_time:.3f}) '
                   't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
                   'Loss={Loss:.5f} '
-                  'IOU={result.iou:.2f}({average.iou:.2f}) '
+                  'MeanAcc={result.mean_acc:.3f}({average.mean_acc}) '
+                  'MIOU={result.mean_iou:.2f}({average.mean_iou:.2f}) '
                 .format(
                 epoch, i + 1, len(train_loader), data_time=data_time,
                 gpu_time=gpu_time, Loss=loss.item(), result=result, average=average_meter.average()))
 
             current_step = epoch * batch_num + i
             logger.add_scalar('Train/Loss', loss, current_step)
-            logger.add_scalar('Train/iou', result.iou, current_step)
+            logger.add_scalar('Train/mean_acc', result.mean_iou, current_step)
+            logger.add_scalar('Train/mean_iou', result.mean_acc, current_step)
 
     avg = average_meter.average()
     return avg

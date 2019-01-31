@@ -170,7 +170,7 @@ def resnet101(n_class, output_stride=16, pretrained=True):
         for k, v in pretrain_dict.items():
             if k in state_dict:
                 model_dict[k] = v
-                print(k)
+                # print(k)
         state_dict.update(model_dict)
         model.load_state_dict(state_dict)
 

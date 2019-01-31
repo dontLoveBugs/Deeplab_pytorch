@@ -68,7 +68,7 @@ class VOCAug(Dataset):
 
 if __name__ == '__main__':
     from dataloaders import transforms as tr
-    from utils import decode_segmap
+    from libs.utils import decode_segmap
     from torch.utils.data import DataLoader
     from torchvision import transforms
     import matplotlib.pyplot as plt
