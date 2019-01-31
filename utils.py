@@ -24,6 +24,8 @@ def get_output_directory(args, check=False):
         run_id = int(runs[-1].split('_')[-1]) if runs else 0
     else:
         runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
+        if len(runs) > 10:
+            print('please delete unnecessary runs, ensure run_id < 10.')
         if check:
             run_id = int(runs[-1].split('_')[-1]) if runs else 0
         else:
@@ -143,6 +145,8 @@ def decode_segmap(label_mask, dataset, plot=False):
         r[label_mask == ll] = label_colours[ll, 0]
         g[label_mask == ll] = label_colours[ll, 1]
         b[label_mask == ll] = label_colours[ll, 2]
+
+    # print('label mask:', label_mask.shape)
     rgb = np.zeros((label_mask.shape[0], label_mask.shape[1], 3))
     rgb[:, :, 0] = r / 255.0
     rgb[:, :, 1] = g / 255.0
@@ -154,14 +158,21 @@ def decode_segmap(label_mask, dataset, plot=False):
         return rgb
 
 
+def de_normalize(rgb, mean = (0.485, 0.456, 0.406), std = (0.229, 0.224, 0.225)):
+    rgb = rgb * std + mean
+    return 255 * rgb
+
+
 def merge_into_row(input, target, pred):
-    rgb = 255 * np.transpose(np.squeeze(input.cpu().numpy()), (1, 2, 0))  # H, W, C
+    rgb = np.transpose(np.squeeze(input.cpu().numpy()), (1, 2, 0))  # H, W, C
+    rgb = de_normalize(rgb)
 
-    target = np.squeeze(torch.argmax(target, 1).cpu().numpy())
-    pred = np.squeeze(torch.argmax(pred, 1).cpu().numpy())
+    target = np.squeeze(target.cpu().numpy())
+    pred = np.squeeze(pred.cpu().numpy())
 
-    target = decode_seg_map_sequence(target)
-    pred = decode_seg_map_sequence(pred)
+    target = 255 * decode_segmap(target, dataset='vocaug')
+    pred = 255 * decode_segmap(pred, dataset='vocaug')
+
     img_merge = np.hstack([rgb, target, pred])
 
     return img_merge

@@ -25,6 +25,7 @@ import utils
 from dataloaders.voc_aug import VOCAug
 
 import criteria
+from metrics import Result
 from network.get_models import get_models
 
 from train import train
@@ -62,6 +63,14 @@ def parse_command():
 
 args = parse_command()
 print(args)
+
+# if setting gpu id, the using single GPU
+if args.gpu:
+    print('Single GPU Mode.')
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+best_result = Result()
+best_result.set_to_worst()
 
 
 def create_loader(args):

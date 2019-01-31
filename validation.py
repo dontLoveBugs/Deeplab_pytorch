@@ -5,7 +5,6 @@
  @Email   : wangxin_buaa@163.com
 """
 
-
 import torch
 import time
 
@@ -13,7 +12,7 @@ from metrics import AverageMeter, Result
 import utils
 
 
-def validate(args, val_loader, model, criterion, optimizer, epoch, logger):
+def validate(args, val_loader, model, epoch, logger):
     average_meter = AverageMeter()
     model.eval()  # switch to train mode
 
@@ -45,7 +44,10 @@ def validate(args, val_loader, model, criterion, optimizer, epoch, logger):
 
         # measure accuracy and record loss
         result = Result()
+
+        # print('#val pred:', pred.size())
         pred = torch.argmax(pred, 1)
+        # print('#val #2 pred:', pred.size())
         result.evaluate(pred.data, target.data)
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
@@ -69,4 +71,5 @@ def validate(args, val_loader, model, criterion, optimizer, epoch, logger):
                 i + 1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
 
     avg = average_meter.average()
-    return avg
+    logger.add_scalar('Test/iou', avg.iou, epoch)
+    return avg, img_merge
