@@ -1,19 +1,12 @@
 # -*- coding: utf-8 -*-
 """
- @Time    : 2019/1/30 20:49
+ @Time    : 2019/1/31 16:39
  @Author  : Wang Xin
  @Email   : wangxin_buaa@163.com
 """
 
-"""
-    reconstuct resnet using dilation conv
-"""
-
-import math
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.utils.model_zoo as model_zoo
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
@@ -66,33 +59,22 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, nInputChannels, block, layers, os=16):
+    def __init__(self):
         self.inplanes = 64
         super(ResNet, self).__init__()
-        if os == 16:
-            strides = [1, 2, 2, 1]
-            rates = [1, 1, 1, 2]
-            MG = [1, 2, 4]  # Multi-Grid
-        elif os == 8:
-            strides = [1, 2, 1, 1]
-            rates = [1, 1, 2, 2]
-            MG = [1, 2, 1]
-        else:
-            raise NotImplementedError
 
         # Modules
-        self.conv1 = nn.Conv2d(nInputChannels, 64, kernel_size=7, stride=2, padding=3,
-                               bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.conv1 = None
+        self.bn1 = None
+        self.relu = None
+        self.maxpool = None
 
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides[0], rate=rates[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], rate=rates[1])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], rate=rates[2])
-        self.layer4 = self._make_MG_unit(block, 512, blocks=MG, stride=strides[3], rate=rates[3])
+        self.layer1 = None
+        self.layer2 = None
+        self.layer3 = None
+        self.layer4 = None
 
-        self._init_weight()
+        self.init_weight()
 
     def _make_layer(self, block, planes, blocks, stride=1, rate=1):
         downsample = None
@@ -129,69 +111,12 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, input):
-        x = self.conv1(input)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
+        return input
 
-        x = self.layer1(x)
-        low_level_feat = x
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        return x, low_level_feat
-
-    def _init_weight(self):
+    def init_weight(self):
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 torch.nn.init.kaiming_normal_(m.weight)
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-
-
-def resnet50(nInputChannels=3, os=16, pretrained=True):
-    model = ResNet(nInputChannels=nInputChannels, block=Bottleneck, layers=[3, 4, 6, 3], os=os)
-
-    if pretrained:
-        pretrain_dict = model_zoo.load_url(model_urls['resnet50'])
-        model_dict = {}
-        state_dict = model.state_dict()
-        for k, v in pretrain_dict.items():
-            if k in state_dict:
-                model_dict[k] = v
-        state_dict.update(model_dict)
-        model.load_state_dict(state_dict)
-
-    return model
-
-
-def resnet101(nInputChannels=3, os=16, pretrained=True):
-    model = ResNet(nInputChannels=nInputChannels, block=Bottleneck, layers=[3, 4, 23, 3], os=os)
-
-    if pretrained:
-        pretrain_dict = model_zoo.load_url(model_urls['resnet101'])
-        model_dict = {}
-        state_dict = model.state_dict()
-        for k, v in pretrain_dict.items():
-            if k in state_dict:
-                model_dict[k] = v
-        state_dict.update(model_dict)
-        model.load_state_dict(state_dict)
-
-    return model
-
-
-if __name__ == '__main__':
-    import torch
-
-    model = resnet50(pretrained=True)
-
-    img = torch.randn(4, 3, 513, 513)
-
-    model.eval()
-
-    with torch.no_grad():
-        pred, _ = model.forward(img)
-
-    print(pred.size())
