@@ -9,18 +9,18 @@ from network import deeplab, deeplabv2, deeplabv3, deeplabv3plus_resnet
 from network.msc import MSC
 
 
-def get_models(args, msc=False):
+def get_models(args):
     if args.model == 'deeplabv2':
-        if msc:
+        if args.msc:
             return MSC(scale= deeplabv2.resnet101(n_class=21, pretrained=True),  pyramids=[0.5, 0.75])
         return deeplabv2.resnet101(n_class=21, pretrained=True)
     elif args.model == 'deeplabv3':
-        if msc:
+        if args.msc:
             return MSC(scale= deeplabv3.resnet101(n_class=21, output_stride=16, pretrained=True),
                        pyramids=[0.5, 0.75])
         return deeplabv3.resnet101(n_class=21, output_stride=16, pretrained=True)
     elif args.model == 'deeplabv3plus':
-        if msc:
+        if args.msc:
             return MSC(scale= deeplabv3plus_resnet.resnet101(n_class=21, output_stride=16, pretrained=True),
                        pyramids=[0.5, 0.75])
         return deeplabv3plus_resnet.resnet101(n_class=21, output_stride=16, pretrained=True)

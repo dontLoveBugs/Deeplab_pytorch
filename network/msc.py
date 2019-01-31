@@ -5,7 +5,6 @@
  @Email   : wangxin_buaa@163.com
 """
 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -41,3 +40,15 @@ class MSC(nn.Module):
             return [logits] + logits_pyramid + [logits_max]
         else:
             return logits_max
+
+    def freeze_bn(self):
+        self.scale.freeze_bn()
+
+    def freeze_backbone_bn(self):
+        self.scale.freeze_backbone_bn()
+
+    def get_1x_lr_params(self):
+        return self.scale.get_1x_lr_params()
+
+    def get_10x_lr_params(self):
+        return self.scale.get_10x_lr_params()

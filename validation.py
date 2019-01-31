@@ -9,6 +9,8 @@ import numpy as np
 import torch
 import time
 
+import joblib
+
 import torch.nn.functional as F
 
 from libs.DenseCRF import DenseCRF
@@ -23,7 +25,7 @@ def validate(args, val_loader, model, epoch, logger):
     output_directory = utils.get_output_directory(args, check=True)
     skip = len(val_loader) // 9  # save images every skip iters
 
-    if args.crg:
+    if args.crf:
         ITER_MAX = 10
         POS_W = 3
         POS_XY_STD = 1
@@ -76,17 +78,20 @@ def validate(args, val_loader, model, epoch, logger):
 
         # Post Processing
         if args.crf:
-            images = input.numpy().astype(np.uint8).transpose(0, 2, 3, 1)
+            images = input.data.cpu().numpy().astype(np.uint8).transpose(0, 2, 3, 1)
             pred = joblib.Parallel(n_jobs=-1)(
                 [joblib.delayed(postprocessor)(*pair) for pair in zip(images, pred)]
             )
 
-        result.evaluate(pred, target)
+        result.evaluate(pred, target, n_class=21)
         average_meter.update(result, gpu_time, data_time, input.size(0))
         end = time.time()
 
         # save 8 images for visualization
-        rgb = input
+        rgb = input.data.cpu().numpy()[0]
+        target = target[0]
+        pred = np.argmax(pred, axis=1)
+        pred = pred[0]
 
         if i == 0:
             img_merge = utils.merge_into_row(rgb, target, pred)
@@ -100,14 +105,17 @@ def validate(args, val_loader, model, epoch, logger):
         if (i + 1) % args.print_freq == 0:
             print('Test: [{0}/{1}]\t'
                   't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
-                  'IOU={result.iou:.2f}({average.iou:.2f})'.format(
+                  'mean_acc={result.mean_acc:.3f}({average.mean_acc:.3f})  '
+                  'mean_iou={result.mean_iou:.3f}({average.mean_iou:.3f})'.format(
                 i + 1, len(val_loader), gpu_time=gpu_time, result=result, average=average_meter.average()))
 
     avg = average_meter.average()
-    logger.add_scalar('Test/iou', avg.iou, epoch)
+    logger.add_scalar('Test/mean_acc', avg.mean_acc, epoch)
+    logger.add_scalar('Test/mean_iou', avg.mean_iou, epoch)
 
     print('\n*\n'
-          'IOU={average.iou:.3f}\n'
+          'mean_acc={average.mean_acc:.3f}\n'
+          'mean_iou={average.mean_iou:.3f}\n'
           't_GPU={time:.3f}\n'.format(
         average=avg, time=avg.gpu_time))
 

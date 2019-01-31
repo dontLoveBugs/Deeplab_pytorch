@@ -18,7 +18,7 @@ cmap = plt.cm.jet
 
 
 def get_output_directory(args, check=False):
-    save_dir_root = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+    save_dir_root = os.getcwd()
     save_dir_root = os.path.join(save_dir_root, 'result', args.model, args.dataset)
     if args.resume:
         runs = sorted(glob.glob(os.path.join(save_dir_root, 'run_*')))
@@ -46,12 +46,12 @@ def save_checkpoint(state, is_best, epoch, output_directory):
 
 def resize_labels(labels, shape):
     # labels = labels.unsqueeze(1).float()  # Add channel axis
-    print('#1 labels size:', labels.size())
+    # print('#1 labels size:', labels.size())
 
     labels = F.interpolate(labels, size=shape, mode="nearest")
     # labels = labels.squeeze(1).long()
 
-    print('#2 labels size:', labels.size())
+    # print('#2 labels size:', labels.size())
     return labels
 
 
@@ -170,8 +170,7 @@ def merge_into_row(input, target, pred):
     rgb = de_normalize(rgb)
 
     target = np.squeeze(target)
-
-    pred = np.squeeze(np.argmax(pred, axis=1))
+    pred = np.squeeze(pred)
 
     target = 255 * decode_segmap(target, dataset='vocaug')
     pred = 255 * decode_segmap(pred, dataset='vocaug')

@@ -18,6 +18,10 @@ from libs import utils
 def train(args, train_loader, model, criterion, optimizer, epoch, logger):
     average_meter = AverageMeter()
     model.train()  # switch to train mode
+
+    if args.freeze:
+        model.module.freeze_backbone_bn()
+
     batch_num = len(train_loader)
 
     output_directory = utils.get_output_directory(args, check=True)
@@ -46,18 +50,20 @@ def train(args, train_loader, model, criterion, optimizer, epoch, logger):
         with torch.autograd.detect_anomaly():
             preds = model(input)  # @wx 注意输出
 
+            # print('#train preds size:', len(preds))
+            # print('#train preds[0] size:', preds[0].size())
             loss = 0
-            if args.multi_scale:
+            if args.msc:
                 for pred in preds:
                     # Resize labels for {100%, 75%, 50%, Max} logits
                     target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
-                    print('#train pred size:', pred.size())
+                    # print('#train pred size:', pred.size())
                     loss += criterion(pred, target_)
             else:
                 pred = preds
                 target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
-                print('#train pred size:', pred.size())
-                print('#train target size:', target.size())
+                # print('#train pred size:', pred.size())
+                # print('#train target size:', target.size())
                 loss += criterion(pred, target_)
 
             # Backpropagate (just compute gradients wrt the loss)
@@ -87,8 +93,8 @@ def train(args, train_loader, model, criterion, optimizer, epoch, logger):
                   't_Data={data_time:.3f}({average.data_time:.3f}) '
                   't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
                   'Loss={Loss:.5f} '
-                  'MeanAcc={result.mean_acc:.3f}({average.mean_acc}) '
-                  'MIOU={result.mean_iou:.2f}({average.mean_iou:.2f}) '
+                  'MeanAcc={result.mean_acc:.3f}({average.mean_acc:.3f}) '
+                  'MIOU={result.mean_iou:.3f}({average.mean_iou:.3f}) '
                 .format(
                 epoch, i + 1, len(train_loader), data_time=data_time,
                 gpu_time=gpu_time, Loss=loss.item(), result=result, average=average_meter.average()))

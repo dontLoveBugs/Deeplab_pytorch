@@ -46,7 +46,7 @@ def scores(label_trues, label_preds, n_class):
     fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
     # cls_iu = dict(zip(range(n_class), iu))
 
-    print('# type:', type(mean_iu), type(acc_cls), type(acc), type(fwavacc))
+    # print('# type:', type(mean_iu), type(acc_cls), type(acc), type(fwavacc))
 
     return mean_iu, acc_cls, acc, fwavacc
 
@@ -73,8 +73,8 @@ class Result(object):
 
     def evaluate(self, output, target, n_class):
         output = np.argmax(output, axis=1)
-        print('output size:', output.shape)
-        print('target size:', target.shape)
+        # print('output size:', output.shape)
+        # print('target size:', target.shape)
 
         outputs = []
         targets = []

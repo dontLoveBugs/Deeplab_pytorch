@@ -36,10 +36,11 @@ def parse_command():
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
     parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
-    parser.add_argument('--crf', default=True, type=bool)
-    parser.add_argument('--multi_scale', default=False, type=bool)
+    parser.add_argument('--crf', default=False, type=bool)
+    parser.add_argument('--msc', default=True, type=bool, help='if true, use multi-scale input')
+    parser.add_argument('--freeze', default=True, type=bool)
     parser.add_argument('--iter_size', default=2, type=int, help='when iter_size, opt step forward')
-    parser.add_argument('-b', '--batch_size', default=8, type=int, help='mini-batch size (default: 4)')
+    parser.add_argument('-b', '--batch_size', default=4, type=int, help='mini-batch size (default: 4)')
     parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
@@ -55,7 +56,7 @@ def parse_command():
     parser.add_argument('--dataset', default='vocaug', type=str,
                         help='dataset used for training, kitti and nyu is available')
     parser.add_argument('--manual_seed', default=1, type=int, help='Manually set random seed')
-    parser.add_argument('--gpu', default='0', type=str, help='if not none, use Single GPU')
+    parser.add_argument('--gpu', default=None, type=str, help='if not none, use Single GPU')
     parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency (default: 10)')
     args = parser.parse_args()
@@ -96,7 +97,7 @@ def create_loader(args):
 
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
                               num_workers=args.workers, pin_memory=True)
-    val_loader = DataLoader(val_set, batch_size=1, shuffle=False, num_workers=args.workers, pin_memory=True)
+    val_loader = DataLoader(val_set, batch_size=16, shuffle=False, num_workers=args.workers, pin_memory=True)
 
     return train_loader, val_loader
 
@@ -189,18 +190,18 @@ def main():
             old_lr = float(param_group['lr'])
             logger.add_scalar('Lr/lr_' + str(i), old_lr, epoch)
 
-        train(args, train_loader, model, criterion, optimizer, epoch, logger)  # train for one epoch
+        # train(args, train_loader, model, criterion, optimizer, epoch, logger)  # train for one epoch
         result, img_merge = validate(args, val_loader, model, epoch, logger)  # evaluate on validation set
 
         # remember best rmse and save checkpoint
-        is_best = result.iou < best_result.iou
+        is_best = result.mean_iou < best_result.mean_iou
         if is_best:
             best_result = result
             with open(best_txt, 'w') as txtfile:
                 txtfile.write(
-                    "epoch={}, iou={:.3f}"
+                    "epoch={}, mean_iou={:.3f}, mean_acc={:.3f}"
                     "t_gpu={:.4f}".
-                        format(epoch, result.iou, result.gpu_time))
+                        format(epoch, result.mean_iou, result.mean_acc, result.gpu_time))
             if img_merge is not None:
                 img_filename = output_directory + '/comparison_best.png'
                 utils.save_image(img_merge, img_filename)
@@ -215,7 +216,7 @@ def main():
         }, is_best, epoch, output_directory)
 
         # when rml doesn't fall, reduce learning rate
-        scheduler.step(result.iou)
+        scheduler.step(result.mean_iou)
 
     logger.close()
 
