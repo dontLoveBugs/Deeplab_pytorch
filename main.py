@@ -36,8 +36,8 @@ def parse_command():
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
     parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
-    parser.add_argument('--crf', default=False, type=bool)
-    parser.add_argument('--msc', default=True, type=bool, help='if true, use multi-scale input')
+    parser.add_argument('--crf', default=False, type=bool, help='if true, use crf as post process.')
+    parser.add_argument('--msc', default=False, type=bool, help='if true, use multi-scale input.')
     parser.add_argument('--freeze', default=True, type=bool)
     parser.add_argument('--iter_size', default=2, type=int, help='when iter_size, opt step forward')
     parser.add_argument('-b', '--batch_size', default=4, type=int, help='mini-batch size (default: 4)')
@@ -190,7 +190,7 @@ def main():
             old_lr = float(param_group['lr'])
             logger.add_scalar('Lr/lr_' + str(i), old_lr, epoch)
 
-        # train(args, train_loader, model, criterion, optimizer, epoch, logger)  # train for one epoch
+        train(args, train_loader, model, criterion, optimizer, epoch, logger)  # train for one epoch
         result, img_merge = validate(args, val_loader, model, epoch, logger)  # evaluate on validation set
 
         # remember best rmse and save checkpoint
