@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 """
- @Time    : 2019/2/13 21:12
+ @Time    : 2019/1/30 16:59
  @Author  : Wang Xin
  @Email   : wangxin_buaa@163.com
 """
-
 import os
 import shutil
 import socket
@@ -20,8 +19,6 @@ from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 
 from torchvision.transforms import transforms
-from tqdm import tqdm
-
 import dataloaders.transforms as tr
 from libs import utils, criteria
 from dataloaders.voc_aug import VOCAug
@@ -29,13 +26,13 @@ from dataloaders.voc_aug import VOCAug
 from libs.metrics import Result
 from network.get_models import get_models
 
-from libs.lr_scheduler import PolynomialLR
+from train import train
+from validation import validate
 
 
 def parse_command():
     import argparse
     parser = argparse.ArgumentParser(description='DORN')
-    parser.add_argument('--mode', default='train', type=str, help='train or test')
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
     parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
@@ -44,7 +41,7 @@ def parse_command():
     parser.add_argument('--freeze', default=True, type=bool)
     parser.add_argument('--iter_size', default=2, type=int, help='when iter_size, opt step forward')
     parser.add_argument('-b', '--batch_size', default=8, type=int, help='mini-batch size (default: 4)')
-    parser.add_argument('--max_iter', default=30000, type=int, metavar='N',
+    parser.add_argument('--epochs', default=200, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.0001)')
@@ -121,13 +118,30 @@ def main():
 
     train_loader, val_loader = create_loader(args)
 
-    if args.mode == 'test':
-        test()
-    elif args.mode == 'train':
+    if args.resume:
+        assert os.path.isfile(args.resume), \
+            "=> no checkpoint found at '{}'".format(args.resume)
+        print("=> loading checkpoint '{}'".format(args.resume))
+        checkpoint = torch.load(args.resume)
 
+        start_epoch = checkpoint['epoch'] + 1
+        best_result = checkpoint['best_result']
+        optimizer = checkpoint['optimizer']
+
+        # solve 'out of memory'
+        model = checkpoint['model']
+
+        print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
+
+        # clear memory
+        del checkpoint
+        # del model_dict
+        torch.cuda.empty_cache()
+    else:
         print("=> creating Model")
         model = get_models(args)
         print("=> model created.")
+        start_epoch = 0
 
         # different modules have different learning rate
         train_params = [{'params': model.get_1x_lr_params(), 'lr': args.lr},
@@ -138,83 +152,73 @@ def main():
         # You can use DataParallel() whether you use Multi-GPUs or not
         model = nn.DataParallel(model).cuda()
 
-        scheduler = PolynomialLR(optimizer=optimizer,
-            step_size=args.lr_decay,
-            iter_max=args.max_iter,
-            power=args.power,
-        )
+    # when training, use reduceLROnPlateau to reduce learning rate
+    scheduler = lr_scheduler.ReduceLROnPlateau(
+        optimizer, 'min', patience=args.lr_patience)
 
-        # loss function
-        criterion = criteria._CrossEntropyLoss2d(size_average=True, batch_average=True)
+    # loss function
+    criterion = criteria._CrossEntropyLoss2d(size_average=True, batch_average=True)
 
-        # create directory path
-        output_directory = utils.get_output_directory(args)
-        if not os.path.exists(output_directory):
-            os.makedirs(output_directory)
-        best_txt = os.path.join(output_directory, 'best.txt')
-        config_txt = os.path.join(output_directory, 'config.txt')
+    # create directory path
+    output_directory = utils.get_output_directory(args)
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    best_txt = os.path.join(output_directory, 'best.txt')
+    config_txt = os.path.join(output_directory, 'config.txt')
 
-        # train
-        model.train()
+    # write training parameters to config file
+    if not os.path.exists(config_txt):
+        with open(config_txt, 'w') as txtfile:
+            args_ = vars(args)
+            args_str = ''
+            for k, v in args_.items():
+                args_str = args_str + str(k) + ':' + str(v) + ',\t\n'
+            txtfile.write(args_str)
 
-        for i in tqdm(
-                range(1, args.max_iter + 1),
-                total=args.max_iter,
-                leave=False,
-                dynamic_ncols=True,
-        ):
-            # Clear gradients (ready to accumulate)
-            optimizer.zero_grad()
+    # create log
+    log_path = os.path.join(output_directory, 'logs',
+                            datetime.now().strftime('%b%d_%H-%M-%S') + '_' + socket.gethostname())
+    if os.path.isdir(log_path):
+        shutil.rmtree(log_path)
+    os.makedirs(log_path)
+    logger = SummaryWriter(log_path)
 
-            loss = 0
-            for _ in range(args.iter_size):
-                try:
-                    images, labels = next(loader_iter)
-                except:
-                    loader_iter = iter(train_loader)
-                    images, labels = next(loader_iter)
+    for epoch in range(start_epoch, args.epochs):
 
-                images = images.cuda()
-                labels = labels.cuda()
+        # remember change of the learning rate
+        for i, param_group in enumerate(optimizer.param_groups):
+            old_lr = float(param_group['lr'])
+            logger.add_scalar('Lr/lr_' + str(i), old_lr, epoch)
 
-                # Propagate forward
-                logits = model(images)
+        train(args, train_loader, model, criterion, optimizer, epoch, logger)  # train for one epoch
+        result, img_merge = validate(args, val_loader, model, epoch, logger)  # evaluate on validation set
 
-                # Loss
-                iter_loss = 0
-                for logit in logits:
-                    # Resize labels for {100%, 75%, 50%, Max} logits
-                    _, _, H, W = logit.shape
-                    labels_ = resize_labels(labels, shape=(H, W))
-                    iter_loss += criterion(logit, labels_)
+        # remember best rmse and save checkpoint
+        is_best = result.mean_iou < best_result.mean_iou
+        if is_best:
+            best_result = result
+            with open(best_txt, 'w') as txtfile:
+                txtfile.write(
+                    "epoch={}, mean_iou={:.3f}, mean_acc={:.3f}"
+                    "t_gpu={:.4f}".
+                        format(epoch, result.mean_iou, result.mean_acc, result.gpu_time))
+            if img_merge is not None:
+                img_filename = output_directory + '/comparison_best.png'
+                utils.save_image(img_merge, img_filename)
 
-                # Backpropagate (just compute gradients wrt the loss)
-                iter_loss /= CONFIG.SOLVER.ITER_SIZE
-                iter_loss.backward()
+        # save checkpoint for each epoch
+        utils.save_checkpoint({
+            'args': args,
+            'epoch': epoch,
+            'model': model,
+            'best_result': best_result,
+            'optimizer': optimizer,
+        }, is_best, epoch, output_directory)
 
-                loss += float(iter_loss)
+        # when rml doesn't fall, reduce learning rate
+        scheduler.step(result.mean_iou)
 
-            average_loss.add(loss)
-
-            # Update weights with accumulated gradients
-            optimizer.step()
-
-            # Update learning rate
-            scheduler.step(epoch=iteration)
-
-
-
-    else:
-        print('no mode named as ', args.mode)
-        exit(-1)
-
-
-def train():
-    pass
-
-
-def test():
-    pass
+    logger.close()
 
 
 if __name__ == '__main__':
