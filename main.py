@@ -52,8 +52,9 @@ def parse_command():
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.0001)')
-    parser.add_argument('--lr_patience', default=2, type=int,
+    parser.add_argument('--lr_decay', default=10, type=int,
                         help='Patience of LR scheduler. See documentation of ReduceLROnPlateau.')
+    parser.add_argument('--power', default=0.9, type=float)
     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                         help='momentum')
     parser.add_argument('--weight_decay', '--wd', default=0.0005, type=float,
@@ -150,7 +151,7 @@ def main():
 
         result, img_merge = validate(args, val_loader, model, epoch, logger=None)
 
-        print('Test Result: mean iou={result.mean_iou:.3f}, mean acc={result.mean_acc}.'.format(result=result))
+        print('Test Result: mean iou={result.mean_iou:.3f}, mean acc={result.mean_acc:.3f}.'.format(result=result))
     elif args.mode == 'train':
 
         print("=> creating Model")
@@ -207,6 +208,7 @@ def main():
         average_meter = AverageMeter()
 
         for it in tqdm(range(1, args.max_iter + 1), total=args.max_iter, leave=False, dynamic_ncols=True):
+        # for it in range(1, args.max_iter + 1):
             # Clear gradients (ready to accumulate)
             optimizer.zero_grad()
 
@@ -224,12 +226,12 @@ def main():
                     loader_iter = iter(train_loader)
                     samples = next(loader_iter)
 
-                input = samples['image']
-                target = samples['label']
+                input = samples['image'].cuda()
+                target = samples['label'].cuda()
 
                 torch.cuda.synchronize()
-                data_time_ = time.time() - end
-                data_time += data_time_
+                data_time_ = time.time()
+                data_time += data_time_ - end
 
                 with torch.autograd.detect_anomaly():
                     preds = model(input)  # @wx 注意输出
@@ -273,17 +275,17 @@ def main():
             result.evaluate(pred.data.cpu().numpy(), target.data.cpu().numpy(), n_class=21)
             average_meter.update(result, gpu_time, data_time, input.size(0))
 
-            if it % args.print_frep == 0:
+            if it % args.print_freq == 0:
                 print('=> output: {}'.format(output_directory))
-                print('Train Iter: [{1}/{2}]\t'
+                print('Train Iter: [{0}/{1}]\t'
                       't_Data={data_time:.3f}({average.data_time:.3f}) '
                       't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
                       'Loss={Loss:.5f} '
                       'MeanAcc={result.mean_acc:.3f}({average.mean_acc:.3f}) '
                       'MIOU={result.mean_iou:.3f}({average.mean_iou:.3f}) '
                       .format(it, args.max_iter, data_time=data_time, gpu_time=gpu_time,
-                              Loss=loss.item(), result=result, average=average_meter.average()))
-                logger.add_scalar('Train/Loss', loss / it, it)
+                              Loss=loss, result=result, average=average_meter.average()))
+                logger.add_scalar('Train/Loss', loss, it)
                 logger.add_scalar('Train/mean_acc', result.mean_iou, it)
                 logger.add_scalar('Train/mean_iou', result.mean_acc, it)
 
