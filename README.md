@@ -17,4 +17,11 @@
 **Auto Deeplab** [Auto-DeepLab: Hierarchical Neural Architecture Search for Semantic Image Segmentation](https://arxiv.org/abs/1901.02985)
 
 
+## Reference
+
+[1] https://github.com/jfzhang95/pytorch-deeplab-xception
+
+[2] https://github.com/kazuto1011/deeplab-pytorch
+
+
 
