@@ -5,7 +5,7 @@
  @Email   : wangxin_buaa@163.com
 """
 
-from network import deeplab, deeplabv2, deeplabv3, deeplabv3plus_resnet
+from network import deeplabv2, deeplabv3, deeplabv3plus_resnet
 from network.msc import MSC
 
 

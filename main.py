@@ -8,7 +8,7 @@
 import os
 import shutil
 import socket
-from datetime import datetime
+import time
 
 import numpy as np
 
@@ -16,8 +16,8 @@ from tensorboardX import SummaryWriter
 
 import torch
 from torch import nn
-from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
+from datetime import datetime
 
 from torchvision.transforms import transforms
 from tqdm import tqdm
@@ -26,10 +26,14 @@ import dataloaders.transforms as tr
 from libs import utils, criteria
 from dataloaders.voc_aug import VOCAug
 
-from libs.metrics import Result
+from libs.metrics import Result, AverageMeter
 from network.get_models import get_models
 
 from libs.lr_scheduler import PolynomialLR
+
+import torch.nn.functional as F
+
+from validation import validate
 
 
 def parse_command():
@@ -62,6 +66,7 @@ def parse_command():
     parser.add_argument('--gpu', default=None, type=str, help='if not none, use Single GPU')
     parser.add_argument('--print-freq', '-p', default=10, type=int,
                         metavar='N', help='print frequency (default: 10)')
+    parser.add_argument('--iter_save', default=500, type=int, help='every iter to save the model.')
     args = parser.parse_args()
     return args
 
@@ -122,7 +127,30 @@ def main():
     train_loader, val_loader = create_loader(args)
 
     if args.mode == 'test':
-        test()
+        if args.resume:
+            assert os.path.isfile(args.resume), \
+                "=> no checkpoint found at '{}'".format(args.resume)
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+
+            epoch = checkpoint['epoch']
+            best_result = checkpoint['best_result']
+
+            # solve 'out of memory'
+            model = checkpoint['model']
+
+            print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
+
+            # clear memory
+            del checkpoint
+            # del model_dict
+            torch.cuda.empty_cache()
+        else:
+            print("no trained model to test.")
+
+        result, img_merge = validate(args, val_loader, model, epoch, logger=None)
+
+        print('Test Result: mean iou={result.mean_iou:.3f}, mean acc={result.mean_acc}.'.format(result=result))
     elif args.mode == 'train':
 
         print("=> creating Model")
@@ -139,10 +167,9 @@ def main():
         model = nn.DataParallel(model).cuda()
 
         scheduler = PolynomialLR(optimizer=optimizer,
-            step_size=args.lr_decay,
-            iter_max=args.max_iter,
-            power=args.power,
-        )
+                                 step_size=args.lr_decay,
+                                 iter_max=args.max_iter,
+                                 power=args.power)
 
         # loss function
         criterion = criteria._CrossEntropyLoss2d(size_average=True, batch_average=True)
@@ -154,67 +181,145 @@ def main():
         best_txt = os.path.join(output_directory, 'best.txt')
         config_txt = os.path.join(output_directory, 'config.txt')
 
+        # write training parameters to config file
+        if not os.path.exists(config_txt):
+            with open(config_txt, 'w') as txtfile:
+                args_ = vars(args)
+                args_str = ''
+                for k, v in args_.items():
+                    args_str = args_str + str(k) + ':' + str(v) + ',\t\n'
+                txtfile.write(args_str)
+
+        # create log
+        log_path = os.path.join(output_directory, 'logs',
+                                datetime.now().strftime('%b%d_%H-%M-%S') + '_' + socket.gethostname())
+        if os.path.isdir(log_path):
+            shutil.rmtree(log_path)
+        os.makedirs(log_path)
+        logger = SummaryWriter(log_path)
+
         # train
         model.train()
+        if args.freeze:
+            model.module.freeze_backbone_bn()
+        output_directory = utils.get_output_directory(args, check=True)
 
-        for i in tqdm(
-                range(1, args.max_iter + 1),
-                total=args.max_iter,
-                leave=False,
-                dynamic_ncols=True,
-        ):
+        average_meter = AverageMeter()
+
+        for it in tqdm(range(1, args.max_iter + 1), total=args.max_iter, leave=False, dynamic_ncols=True):
             # Clear gradients (ready to accumulate)
             optimizer.zero_grad()
 
+            end = time.time()
+
             loss = 0
+
+            data_time = 0
+            gpu_time = 0
+
             for _ in range(args.iter_size):
                 try:
-                    images, labels = next(loader_iter)
+                    samples = next(loader_iter)
                 except:
                     loader_iter = iter(train_loader)
-                    images, labels = next(loader_iter)
+                    samples = next(loader_iter)
 
-                images = images.cuda()
-                labels = labels.cuda()
+                input = samples['image']
+                target = samples['label']
 
-                # Propagate forward
-                logits = model(images)
+                torch.cuda.synchronize()
+                data_time_ = time.time() - end
+                data_time += data_time_
 
-                # Loss
-                iter_loss = 0
-                for logit in logits:
-                    # Resize labels for {100%, 75%, 50%, Max} logits
-                    _, _, H, W = logit.shape
-                    labels_ = resize_labels(labels, shape=(H, W))
-                    iter_loss += criterion(logit, labels_)
+                with torch.autograd.detect_anomaly():
+                    preds = model(input)  # @wx 注意输出
 
-                # Backpropagate (just compute gradients wrt the loss)
-                iter_loss /= CONFIG.SOLVER.ITER_SIZE
-                iter_loss.backward()
+                    # print('#train preds size:', len(preds))
+                    # print('#train preds[0] size:', preds[0].size())
+                    iter_loss = 0
+                    if args.msc:
+                        for pred in preds:
+                            # Resize labels for {100%, 75%, 50%, Max} logits
+                            target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
+                            # print('#train pred size:', pred.size())
+                            iter_loss += criterion(pred, target_)
+                    else:
+                        pred = preds
+                        target_ = utils.resize_labels(target, shape=(pred.size()[-2], pred.size()[-1]))
+                        # print('#train pred size:', pred.size())
+                        # print('#train target size:', target.size())
+                        iter_loss += criterion(pred, target_)
 
-                loss += float(iter_loss)
+                    # Backpropagate (just compute gradients wrt the loss)
+                    iter_loss /= args.iter_size
+                    iter_loss.backward()
 
-            average_loss.add(loss)
+                    loss += float(iter_loss)
+
+                gpu_time += time.time() - data_time_
+
+            torch.cuda.synchronize()
 
             # Update weights with accumulated gradients
             optimizer.step()
 
             # Update learning rate
-            scheduler.step(epoch=iteration)
+            scheduler.step(epoch=it)
 
+            # measure accuracy and record loss
+            result = Result()
+            pred = F.softmax(pred, dim=1)
 
+            result.evaluate(pred.data.cpu().numpy(), target.data.cpu().numpy(), n_class=21)
+            average_meter.update(result, gpu_time, data_time, input.size(0))
 
+            if it % args.print_frep == 0:
+                print('=> output: {}'.format(output_directory))
+                print('Train Iter: [{1}/{2}]\t'
+                      't_Data={data_time:.3f}({average.data_time:.3f}) '
+                      't_GPU={gpu_time:.3f}({average.gpu_time:.3f})\n\t'
+                      'Loss={Loss:.5f} '
+                      'MeanAcc={result.mean_acc:.3f}({average.mean_acc:.3f}) '
+                      'MIOU={result.mean_iou:.3f}({average.mean_iou:.3f}) '
+                      .format(it, args.max_iter, data_time=data_time, gpu_time=gpu_time,
+                              Loss=loss.item(), result=result, average=average_meter.average()))
+                logger.add_scalar('Train/Loss', loss / it, it)
+                logger.add_scalar('Train/mean_acc', result.mean_iou, it)
+                logger.add_scalar('Train/mean_iou', result.mean_acc, it)
+
+            if it % args.iter_save == 0:
+                resu1t, img_merge = validate(args, val_loader, model, epoch=it, logger=logger)
+
+                # remember best rmse and save checkpoint
+                is_best = result.mean_iou < best_result.mean_iou
+                if is_best:
+                    best_result = result
+                    with open(best_txt, 'w') as txtfile:
+                        txtfile.write(
+                            "Iter={}, mean_iou={:.3f}, mean_acc={:.3f}"
+                            "t_gpu={:.4f}".
+                                format(it, result.mean_iou, result.mean_acc, result.gpu_time))
+                    if img_merge is not None:
+                        img_filename = output_directory + '/comparison_best.png'
+                        utils.save_image(img_merge, img_filename)
+
+                # save checkpoint for each epoch
+                utils.save_checkpoint({
+                    'args': args,
+                    'epoch': it,
+                    'model': model,
+                    'best_result': best_result,
+                    'optimizer': optimizer,
+                }, is_best, it, output_directory)
+
+                model.train()
+                if args.freeze:
+                    model.module.freeze_backbone_bn()
+
+        logger.close()
     else:
         print('no mode named as ', args.mode)
         exit(-1)
-
-
-def train():
-    pass
-
-
-def test():
-    pass
 
 
 if __name__ == '__main__':
