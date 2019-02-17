@@ -5,13 +5,10 @@
  @Email   : wangxin_buaa@163.com
 """
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils import model_zoo
 
-from network.resnet import *
-from network.aspp_module import *
+from network.base.resnet import *
+from network.base.oprations import *
 
 
 class DeeplabV2(ResNet):

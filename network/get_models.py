@@ -6,7 +6,7 @@
 """
 
 from network import deeplabv2, deeplabv3, deeplabv3plus_resnet
-from network.msc import MSC
+from network.base.msc import MSC
 
 
 def get_models(args):

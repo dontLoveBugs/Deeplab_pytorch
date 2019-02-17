@@ -5,16 +5,12 @@
  @Email   : wangxin_buaa@163.com
 """
 
-import math
-
 import torch.nn.functional as F
 
-import torch
-import torch.nn as nn
 from torch.utils import model_zoo
 
-from network.aspp_module import ASPP_module
-from network.resnet import *
+from network.base.oprations import ASPP_module
+from network.base.resnet import *
 
 
 class DeeplabV3(ResNet):

@@ -8,13 +8,10 @@
 import math
 
 import torch.nn.functional as F
-
-import torch
-import torch.nn as nn
 from torch.utils import model_zoo
 
-from network.aspp_module import ASPP_module
-from network.resnet import *
+from network.base.oprations import ASPP_module
+from network.base.resnet import *
 
 
 class DeeplabV3Plus(ResNet):
@@ -119,9 +116,10 @@ class DeeplabV3Plus(ResNet):
                     yield k
 
     def get_10x_lr_params(self):
-        b = [self.aspp1, self.aspp2, self.aspp3, self.aspp4, self.global_avg_pool, self._conv1, self._conv2, self._conv3]
-        for j in range(len(b)):
-            for k in b[j].parameters():
+        b = [self.aspp1, self.aspp2, self.aspp3, self.aspp4, self.global_avg_pool,
+             self._conv1, self._conv2, self._conv3]
+        for i in range(len(b)):
+            for k in b[i].parameters():
                 if k.requires_grad:
                     yield k
 

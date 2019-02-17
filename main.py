@@ -50,7 +50,7 @@ def parse_command():
     parser.add_argument('-b', '--batch_size', default=8, type=int, help='mini-batch size (default: 4)')
     parser.add_argument('--max_iter', default=30000, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
-    parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+    parser.add_argument('--lr', '--learning-rate', default=0.007, type=float,
                         metavar='LR', help='initial learning rate (default 0.0001)')
     parser.add_argument('--lr_decay', default=10, type=int,
                         help='Patience of LR scheduler. See documentation of ReduceLROnPlateau.')
@@ -153,19 +153,42 @@ def main():
 
         print('Test Result: mean iou={result.mean_iou:.3f}, mean acc={result.mean_acc:.3f}.'.format(result=result))
     elif args.mode == 'train':
+        if args.resume:
+            assert os.path.isfile(args.resume), \
+                "=> no checkpoint found at '{}'".format(args.resume)
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
 
-        print("=> creating Model")
-        model = get_models(args)
-        print("=> model created.")
+            start_iter = checkpoint['epoch'] + 1
+            best_result = checkpoint['best_result']
+            optimizer = checkpoint['optimizer']
 
-        # different modules have different learning rate
-        train_params = [{'params': model.get_1x_lr_params(), 'lr': args.lr},
-                        {'params': model.get_10x_lr_params(), 'lr': args.lr * 10}]
+            # solve 'out of memory'
+            model = checkpoint['model']
 
-        optimizer = torch.optim.SGD(train_params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+            print("=> loaded checkpoint (epoch {})".format(checkpoint['epoch']))
 
-        # You can use DataParallel() whether you use Multi-GPUs or not
-        model = nn.DataParallel(model).cuda()
+            # clear memory
+            del checkpoint
+            # del model_dict
+            torch.cuda.empty_cache()
+        else:
+            print("=> creating Model")
+            model = get_models(args)
+            print("=> model created.")
+            start_iter = 1
+
+            # different modules have different learning rate
+            train_params = [{'params': model.get_1x_lr_params(), 'lr': args.lr},
+                            {'params': model.get_10x_lr_params(), 'lr': args.lr * 10}]
+
+            print(train_params)
+
+            optimizer = torch.optim.SGD(train_params, lr=args.lr, momentum=args.momentum,
+                                        weight_decay=args.weight_decay)
+
+            # You can use DataParallel() whether you use Multi-GPUs or not
+            model = nn.DataParallel(model).cuda()
 
         scheduler = PolynomialLR(optimizer=optimizer,
                                  step_size=args.lr_decay,
@@ -207,8 +230,8 @@ def main():
 
         average_meter = AverageMeter()
 
-        for it in tqdm(range(1, args.max_iter + 1), total=args.max_iter, leave=False, dynamic_ncols=True):
-        # for it in range(1, args.max_iter + 1):
+        for it in tqdm(range(start_iter, args.max_iter + 1), total=args.max_iter, leave=False, dynamic_ncols=True):
+            # for it in range(1, args.max_iter + 1):
             # Clear gradients (ready to accumulate)
             optimizer.zero_grad()
 
@@ -289,6 +312,10 @@ def main():
                 logger.add_scalar('Train/mean_acc', result.mean_iou, it)
                 logger.add_scalar('Train/mean_iou', result.mean_acc, it)
 
+                for i, param_group in enumerate(optimizer.param_groups):
+                    old_lr = float(param_group['lr'])
+                    logger.add_scalar('Lr/lr_' + str(i), old_lr, it)
+
             if it % args.iter_save == 0:
                 resu1t, img_merge = validate(args, val_loader, model, epoch=it, logger=logger)
 
@@ -314,6 +341,7 @@ def main():
                     'optimizer': optimizer,
                 }, is_best, it, output_directory)
 
+                # change to train mode
                 model.train()
                 if args.freeze:
                     model.module.freeze_backbone_bn()
