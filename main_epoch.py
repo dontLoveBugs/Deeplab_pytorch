@@ -30,7 +30,6 @@ from dataloaders.voc_aug import VOCAug
 from libs.metrics import Result, AverageMeter
 from network.get_models import get_models
 
-from train import train
 from validation import validate
 
 
@@ -39,13 +38,13 @@ def parse_command():
     parser = argparse.ArgumentParser(description='DORN')
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
-    parser.add_argument('--model', default='deeplabv2', type=str, help='train which network')
+    parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
     parser.add_argument('--crf', default=False, type=bool, help='if true, use crf as post process.')
     parser.add_argument('--msc', default=False, type=bool, help='if true, use multi-scale input.')
     parser.add_argument('--freeze', default=True, type=bool)
     parser.add_argument('--iter_size', default=2, type=int, help='when iter_size, opt step forward')
     parser.add_argument('-b', '--batch_size', default=4, type=int, help='mini-batch size (default: 4)')
-    parser.add_argument('--epochs', default=200, type=int, metavar='N',
+    parser.add_argument('--epochs', default=40, type=int, metavar='N',
                         help='number of total epochs to run (default: 15)')
     parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                         metavar='LR', help='initial learning rate (default 0.0001)')
@@ -65,18 +64,6 @@ def parse_command():
                         metavar='N', help='print frequency (default: 10)')
     args = parser.parse_args()
     return args
-
-
-args = parse_command()
-print(args)
-
-# if setting gpu id, the using single GPU
-if args.gpu:
-    print('Single GPU Mode.')
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
-best_result = Result()
-best_result.set_to_worst()
 
 
 def create_loader(args):
@@ -107,7 +94,16 @@ def create_loader(args):
 
 
 def main():
-    global args, best_result, output_directory
+    args = parse_command()
+    print(args)
+
+    # if setting gpu id, the using single GPU
+    if args.gpu:
+        print('Single GPU Mode.')
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+    best_result = Result()
+    best_result.set_to_worst()
 
     # set random seed
     torch.manual_seed(args.manual_seed)
@@ -203,8 +199,6 @@ def main():
     for it in tqdm(range(start_iter, max_iter + 1), total=max_iter, leave=False, dynamic_ncols=True):
         optimizer.zero_grad()
 
-        end = time.time()
-
         loss = 0
 
         data_time = 0
@@ -212,6 +206,9 @@ def main():
         train_meter.reset()
 
         for _ in range(args.iter_size):
+
+            end = time.time()
+
             try:
                 samples = next(loader_iter)
             except:
@@ -273,7 +270,7 @@ def main():
                   'Loss={Loss:.5f} '
                   'MeanAcc={result.mean_acc:.3f}({average.mean_acc:.3f}) '
                   'MIOU={result.mean_iou:.3f}({average.mean_iou:.3f}) '
-                  .format(it, args.max_iter, data_time=data_time, gpu_time=gpu_time,
+                  .format(it, max_iter, data_time=data_time, gpu_time=gpu_time,
                           Loss=loss, result=result, average=average_meter.average()))
             logger.add_scalar('Train/Loss', loss, it)
             logger.add_scalar('Train/mean_acc', result.mean_iou, it)

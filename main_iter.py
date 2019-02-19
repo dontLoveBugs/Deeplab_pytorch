@@ -235,14 +235,13 @@ def main():
             # Clear gradients (ready to accumulate)
             optimizer.zero_grad()
 
-            end = time.time()
-
             loss = 0
 
             data_time = 0
             gpu_time = 0
 
             for _ in range(args.iter_size):
+                end = time.time()
                 try:
                     samples = next(loader_iter)
                 except:
