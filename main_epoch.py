@@ -38,7 +38,7 @@ def parse_command():
     parser = argparse.ArgumentParser(description='DORN')
     parser.add_argument('--resume', default=None, type=str, metavar='PATH',
                         help='path to latest checkpoint (default: ./run/run_1/checkpoint-5.pth.tar)')
-    parser.add_argument('--model', default='deeplabv3plus', type=str, help='train which network')
+    parser.add_argument('--model', default='deeplabv2', type=str, help='train which network')
     parser.add_argument('--crf', default=False, type=bool, help='if true, use crf as post process.')
     parser.add_argument('--msc', default=False, type=bool, help='if true, use multi-scale input.')
     parser.add_argument('--freeze', default=True, type=bool)
@@ -203,7 +203,6 @@ def main():
 
         data_time = 0
         gpu_time = 0
-        train_meter.reset()
 
         for _ in range(args.iter_size):
 
@@ -294,7 +293,7 @@ def main():
                                                     'test_mean_acc':result.mean_acc}, epoch)
             logger.add_scalar('TrainVal/mean_iou', {'train_mean_iou':train_avg.mean_iou,
                                                     'test_mean_iou':result.mean_iou}, epoch)
-
+            train_meter.reset()
             # remember best rmse and save checkpoint
             is_best = result.mean_iou < best_result.mean_iou
             if is_best:

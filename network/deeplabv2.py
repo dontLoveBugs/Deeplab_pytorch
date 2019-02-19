@@ -53,6 +53,8 @@ class DeeplabV2(ResNet):
         x4 = self.aspp4(x)
 
         x = x1 + x2 + x3 + x4
+
+        x = F.upsample(x, size=input.size()[2:], mode='bilinear', align_corners=True)
         return x
 
     def get_1x_lr_params(self):
