@@ -80,8 +80,7 @@ class Result(object):
         targets = []
         outputs.append(output)
         targets.append(target)
-        self.mean_iou, self.mean_acc, self.overall_acc, self.freqw_acc \
-            = scores(targets, outputs, n_class=n_class)
+        self.mean_iou, self.mean_acc, self.overall_acc, self.freqw_acc  = scores(targets, outputs, n_class=n_class)
 
 
 class AverageMeter(object):
