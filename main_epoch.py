@@ -186,6 +186,7 @@ def main():
     start_iter = len(train_loader) * start_epoch + 1
     max_iter = len(train_loader) * (args.epochs - start_epoch + 1) + 1
     iter_save = len(train_loader)
+    # iter_save = 1
 
     # train
     model.train()
@@ -289,10 +290,10 @@ def main():
 
             # vis the change between train and test
             train_avg = train_meter.average()
-            logger.add_scalar('TrainVal/mean_acc', {'train_mean_acc':train_avg.mean_acc,
-                                                    'test_mean_acc':result.mean_acc}, epoch)
-            logger.add_scalar('TrainVal/mean_iou', {'train_mean_iou':train_avg.mean_iou,
-                                                    'test_mean_iou':result.mean_iou}, epoch)
+            logger.add_scalars('TrainVal/mean_acc',
+                              {'train_mean_acc':train_avg.mean_acc, 'test_mean_acc':result.mean_acc}, epoch)
+            logger.add_scalars('TrainVal/mean_iou',
+                              {'train_mean_iou':train_avg.mean_iou, 'test_mean_iou':result.mean_iou}, epoch)
             train_meter.reset()
             # remember best rmse and save checkpoint
             is_best = result.mean_iou < best_result.mean_iou
